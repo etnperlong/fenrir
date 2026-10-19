@@ -88,6 +88,29 @@ After building, you should see a new file named `lk.patched` in the root directo
 > [!NOTE]
 > If fastboot mode is not available on your device, you might have to use another method to flash the output image. The provided script assumes fastboot mode is available.
 
+## Validating the input image
+
+Patch patterns are tied to a specific bootloader version, so feeding the wrong image produces a
+silently half-patched result. Pass `--strict` to make that a hard failure, and `--expect-hits` to
+also require the exact per-partition hit counts of the build you reverse engineered:
+
+```bash
+./inject.sh pacman bin/pacman.bin --strict \
+    --expect-hits expectations.json -o pacman-fenrir.bin
+```
+
+```json
+{
+  "sec_get_vfy_policy": { "lk": 1, "bl2_ext": 1, "aee": 1 },
+  "spoof_lock_state": { "lk": 1, "bl2_ext": 1, "aee": 1 }
+}
+```
+
+With `--strict`, any stage that finds no pattern, references a missing partition, expects hit
+counts that do not match, or has no payload file aborts the run and **no output is written**,
+so a truncated patch set can never be flashed by accident. Without it the previous behaviour is
+kept (warnings only).
+
 ## Status
 The following devices are currently supported:
 

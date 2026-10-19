@@ -469,6 +469,16 @@ DEVICES = [
                 'force_green_state',
                 pattern='c8 04 00 90 00 f9 03 b9 c0 03 5f d6',
                 replacement='c8 04 00 90 1f f9 03 b9 c0 03 5f d6',
+                # Same sys_set_boot_state()-style setter, different global layout
+                # (adrp page and store offset moved): TB375FC stock builds use this one.
+                # Verified by cross-referencing its three callers, which match this build's
+                # 'mov w0, #2' / 'cinc' / 'mov w0, wzr' boot state write paths.
+                variants=[('c8 04 00 b0 00 11 04 b9 c0 03 5f d6',
+                           'c8 04 00 b0 1f 11 04 b9 c0 03 5f d6'),
+                          ('e8 04 00 b0 00 f9 03 b9 c0 03 5f d6',
+                           'e8 04 00 b0 1f f9 03 b9 c0 03 5f d6'),
+                          ('c8 04 00 b0 00 99 06 b9 c0 03 5f d6',
+                           'c8 04 00 b0 1f 99 06 b9 c0 03 5f d6')],
                 match_mode=MatchMode.ALL,
                 description='Force boot state to always be set to green',
             ),

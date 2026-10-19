@@ -27,6 +27,16 @@ def main() -> int:
         action='store_true',
         help='List available stages and exit',
     )
+    parser.add_argument(
+        '--strict',
+        action='store_true',
+        help='Abort (writing no output) when a stage cannot be applied as expected',
+    )
+    parser.add_argument(
+        '--expect-hits',
+        default=None,
+        help='JSON file mapping stage name to {partition: expected hit count}',
+    )
 
     args: argparse.Namespace = parser.parse_args()
 

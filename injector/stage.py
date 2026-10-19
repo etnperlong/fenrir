@@ -16,6 +16,7 @@ class InjectionContext:
     base: int
     payload_dir: Path
     device_name: str
+    strict: bool = False
 
 
 class Stage(ABC):
@@ -107,6 +108,8 @@ class PatchStage(Stage):
     def __init__(self, name: str, pattern: Union[str, bytes], replacement: Union[str, bytes],
                  match_mode: Union[int, MatchMode] = MatchMode.FIRST,
                  partition: Optional[Union[str, List[str]]] = None,
+                 expected_hits: Optional[Dict[str, int]] = None,
+                 variants: Optional[List[Tuple[str, str]]] = None,
                  description: str = "", **kwargs: Any) -> None:
         super().__init__(name, 0, 0, description=description, **kwargs)
 
@@ -115,7 +118,17 @@ class PatchStage(Stage):
         else:
             self.pattern = pattern
 
+        # Encodings of the same function in other bootloader builds (pattern, replacement).
+        # The first alternative that matches wins, so one stage covers several releases.
+        self.alternatives: List[Tuple[bytes, bytes]] = []
+        for alt_pattern, alt_replacement in (variants or []):
+            self.alternatives.append((
+                PatternMatcher.hex_to_bytes(alt_pattern),
+                PatternMatcher.hex_to_bytes(alt_replacement),
+            ))
+
         self.match_mode: Union[int, MatchMode] = match_mode
+        self.expected_hits: Optional[Dict[str, int]] = expected_hits
         if partition is None:
             self.partitions: Optional[List[str]] = None
         elif isinstance(partition, str):
@@ -132,6 +145,11 @@ class PatchStage(Stage):
 
     def load_payload(self, payload_dir: Path, device_name: str) -> bytes:
         return b''
+
+    def _fail(self, ctx: InjectionContext, msg: str) -> None:
+        if ctx.strict:
+            raise RuntimeError(msg)
+        print("Warning: %s" % msg)
 
     def _select_matches(self, matches: List[Tuple[str, int]]) -> List[Tuple[str, int]]:
         if isinstance(self.match_mode, MatchMode):
@@ -153,7 +171,7 @@ class PatchStage(Stage):
             targets: List[Tuple[str, LkPartition]] = []
             for part_name in self.partitions:
                 if part_name not in ctx.image.partitions:
-                    print("Warning: partition '%s' not found for patch '%s'" % (part_name, self.name))
+                    self._fail(ctx, "partition '%s' not found for patch '%s'" % (part_name, self.name))
                     continue
                 targets.append((part_name, ctx.image.partitions[part_name]))
             if not targets:
@@ -161,21 +179,52 @@ class PatchStage(Stage):
         else:
             targets = list(ctx.image.partitions.items())
 
-        matches: List[Tuple[str, int]] = []
-        for part_name, part in targets:
-            data: bytes = part.data
-            start: int = 0
-            while True:
-                idx: int = data.find(self.pattern, start)
-                if idx == -1:
+        def find_all(pattern: bytes) -> List[Tuple[str, int]]:
+            found: List[Tuple[str, int]] = []
+            for part_name, part in targets:
+                data: bytes = part.data
+                start: int = 0
+                while True:
+                    idx: int = data.find(pattern, start)
+                    if idx == -1:
+                        break
+                    found.append((part_name, idx))
+                    start = idx + 1
+            return found
+
+        active_pattern: bytes = self.pattern
+        active_replacement: bytes = self.replacement
+        matches: List[Tuple[str, int]] = find_all(active_pattern)
+
+        if not matches and self.alternatives:
+            for alt_pattern, alt_replacement in self.alternatives:
+                alt_matches = find_all(alt_pattern)
+                if alt_matches:
+                    active_pattern, active_replacement = alt_pattern, alt_replacement
+                    matches = alt_matches
+                    print("Matched alternative encoding for patch '%s'" % self.name)
                     break
-                matches.append((part_name, idx))
-                start = idx + 1
+
+        if not matches and self.alternatives:
+            self._fail(ctx, "Pattern not found for patch '%s' (tried %d encodings)"
+                       % (self.name, len(self.alternatives) + 1))
+            return
+
+        counts: Dict[str, int] = {}
+        for part_name, _ in matches:
+            counts[part_name] = counts.get(part_name, 0) + 1
+
+        if self.expected_hits is not None and counts != self.expected_hits:
+            self._fail(
+                ctx,
+                "patch '%s' hit counts %s do not match expectations %s"
+                % (self.name, counts, self.expected_hits),
+            )
 
         selected: List[Tuple[str, int]] = self._select_matches(matches)
 
         if not selected:
-            print("Warning: Pattern not found for patch '%s'" % self.name)
+            self._fail(ctx, "Pattern not found for patch '%s'" % self.name)
             return
 
         by_partition: Dict[str, List[int]] = {}
@@ -187,13 +236,13 @@ class PatchStage(Stage):
             part = ctx.image.partitions[part_name]
             data_buf: bytearray = bytearray(part.data)
             for offset in sorted(offsets, reverse=True):
-                PatternMatcher._apply_single_patch(data_buf, offset, self.pattern, self.replacement)
+                PatternMatcher._apply_single_patch(data_buf, offset, active_pattern, active_replacement)
                 applied += 1
             part.data = bytes(data_buf)
 
         match_desc = "all matches" if self.match_mode in (-1, MatchMode.ALL) else "first match" if self.match_mode == MatchMode.FIRST else "match #%s" % self.match_mode
         print("Successfully applied patch '%s': %d bytes -> %d bytes (%s, %d hit(s))" %
-              (self.name, len(self.pattern), len(self.replacement), match_desc, applied))
+              (self.name, len(active_pattern), len(active_replacement), match_desc, applied))
 
 
 class StageFactory:
@@ -234,7 +283,9 @@ class StageFactory:
             else:
                 match_mode = match_mode_val
 
-            return PatchStage(name, pattern, replacement, match_mode, partition=partition, description=description, enabled=enabled)
+            return PatchStage(name, pattern, replacement, match_mode, partition=partition,
+                              expected_hits=config.get("expected_hits"), variants=config.get("variants"),
+                              description=description, enabled=enabled)
         else:
             raise ValueError("Unknown stage type: %s" % stage_type)
 

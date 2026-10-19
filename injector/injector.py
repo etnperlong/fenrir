@@ -10,10 +10,12 @@ from stage import InjectionContext, Stage, StageFactory
 
 class BootloaderInjector:
     def __init__(self, bootloader_path: str, payload_dir: str = "payload/build",
-                 base: Optional[int] = None, device_name: Optional[str] = None) -> None:
+                 base: Optional[int] = None, device_name: Optional[str] = None,
+                 strict: bool = False) -> None:
         self.bootloader_path: Path = Path(bootloader_path)
         self.payload_dir: Path = Path(payload_dir)
         self.device_name: Optional[str] = device_name
+        self.strict: bool = strict
         self.stages: Dict[str, Stage] = {}
 
         if not self.bootloader_path.exists():
@@ -74,7 +76,8 @@ class BootloaderInjector:
 
     def inject_all_stages(self) -> bool:
         ctx: InjectionContext = InjectionContext(
-            self.image, self.lk, self.base, self.payload_dir, self.device_name or ''
+            self.image, self.lk, self.base, self.payload_dir, self.device_name or '',
+            self.strict
         )
 
         injected_stages: List[str] = []
@@ -88,6 +91,9 @@ class BootloaderInjector:
                 injected_stages.append(stage_name)
             except FileNotFoundError as e:
                 if "payload" in str(e).lower():
+                    if self.strict:
+                        print("Error: stage %s has no payload file (strict mode)" % stage_name)
+                        return False
                     print("Warning: Skipping payload stage %s (payload file not found)" % stage_name)
                     payload_stages_skipped.append(stage_name)
                     continue
