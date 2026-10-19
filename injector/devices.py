@@ -514,6 +514,9 @@ DEVICES = [
                 'bypass_region_check',
                 pattern='ff 03 01 d1 fd 7b 01 a9 f5 13 00 f9 f4 4f 03 a9 fd 43 00 91 f3 03 00 aa bf c3 1f b8',
                 replacement='00 00 80 52 c0 03 5f d6 f5 13 00 f9 f4 4f 03 a9 fd 43 00 91 f3 03 00 aa bf c3 1f b8',
+                # TB375FC ZUX 1.5.10.103 Check region() encoding; force its result to 0.
+                variants=[('ff 03 01 d1 fd 7b 01 a9 f6 57 02 a9 f4 4f 03 a9 fd 43 00 91 f3 03 00 aa ff 07 00 b9',
+                           '00 00 80 52 c0 03 5f d6 f6 57 02 a9 f4 4f 03 a9 fd 43 00 91 f3 03 00 aa ff 07 00 b9')],
                 match_mode=MatchMode.ALL,
                 description='Skip region check - allow crossflashing',
             ),

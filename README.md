@@ -111,6 +111,14 @@ counts that do not match, or has no payload file aborts the run and **no output 
 so a truncated patch set can never be flashed by accident. Without it the previous behaviour is
 kept (warnings only).
 
+The `peridotl` region-check stage includes an alternative encoding for the Lenovo
+TB375FC ZUX 1.5.10.103 LK build. Its function identity was checked against the
+older build using region/RPMB diagnostics and the direct boot-flow caller.
+All eight stages passed strict per-partition hit-count checks on that image;
+the resulting image has not been boot-tested. This variant does not alter the
+existing AVB public-key policy or certificate-bypass setting.
+
+
 ## Status
 The following devices are currently supported:
 
